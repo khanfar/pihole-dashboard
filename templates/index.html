@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dark Khanfar Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            background-color: #121212; 
+            color: #e0e0e0; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .container { 
+            display: grid; 
+            grid-template-columns: repeat(3, 1fr); 
+            gap: 20px; 
+            width: 90%;
+            text-align: center;
+        }
+        .extra-data {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 20px;
+            width: 90%;
+        }
+        .data-item {
+            flex: 1;
+            margin: 5px;
+            font-size: 18px;
+        }
+        canvas { 
+            max-width: 200px; 
+            margin: auto; 
+        }
+        h1 { text-align: center; color: #ffffff; }
+        .data-text { font-size: 18px; color: #9e9e9e; }
+    </style>
+</head>
+<body>
+    <h1>Khanfar Dashboard</h1>
+
+    <div class="container">
+        <div>
+            <canvas id="blockedPercentageGauge"></canvas>
+            <p class="data-text">Blocked Percentage</p>
+        </div>
+        <div>
+            <canvas id="ramGauge"></canvas>
+            <p class="data-text">RAM Usage</p>
+        </div>
+        <div>
+            <canvas id="totalQueriesChart"></canvas>
+            <p class="data-text">Total Queries Over Last Hour</p>
+        </div>
+        <div>
+            <canvas id="queriesBlockedChart"></canvas>
+            <p class="data-text">Queries Blocked Over Last Hour</p>
+        </div>
+        <div>
+            <canvas id="clientActivityChart"></canvas>
+            <p class="data-text">Client Activity Over Last Hour</p>
+        </div>
+    </div>
+
+    <div class="extra-data">
+        <div class="data-item">Domains Blocked: <span id="domainsBlocked">0</span></div>
+        <div class="data-item">Clients Ever Seen: <span id="clientsEverSeen">0</span></div>
+        <div class="data-item">Unique Domains: <span id="uniqueDomains">0</span></div>
+        <div class="data-item">Queries Cached: <span id="queriesCached">0</span>%</div>
+    </div>
+
+    <script>
+        async function fetchData() {
+            const response = await fetch('/api/data');
+            const data = await response.json();
+
+            // Update gauges
+            updateGauge(blockedPercentageGauge, data.pihole.ads_percentage_today);
+            updateGauge(ramGauge, data.ram_usage);
+
+            // Update additional metrics
+            document.getElementById('domainsBlocked').textContent = data.pihole.domains_being_blocked;
+            document.getElementById('clientsEverSeen').textContent = data.pihole.unique_clients;
+            document.getElementById('uniqueDomains').textContent = data.pihole.unique_domains;
+            document.getElementById('queriesCached').textContent = data.pihole.queries_cached_percentage;
+
+            // Update charts
+            updateTotalQueriesChart(data.total_queries_last_hour);
+            updateQueriesBlockedChart(data.queries_blocked_last_hour);
+            updateClientActivityChart(data.client_activity_last_hour);
+        }
+
+        // Initialize Gauges
+        const gaugeConfig = (label) => ({
+            type: 'doughnut',
+            data: {
+                labels: [label, ''],
+                datasets: [{
+                    data: [0, 100],
+                    backgroundColor: ['#76c7c0', '#333'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                rotation: 270,
+                circumference: 180,
+                cutout: '80%',
+                plugins: {
+                    tooltip: { enabled: false },
+                    datalabels: {
+                        color: '#ffffff',
+                        font: { size: 16, weight: 'bold' },
+                        formatter: (value, context) => context.chart.data.datasets[0].data[0] + '%',
+                        anchor: 'center',
+                        align: 'center',
+                    }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+
+        const blockedPercentageGauge = new Chart(document.getElementById('blockedPercentageGauge'), gaugeConfig('Blocked %'));
+        const ramGauge = new Chart(document.getElementById('ramGauge'), gaugeConfig('RAM %'));
+
+        function updateGauge(chart, value) {
+            chart.data.datasets[0].data[0] = value;
+            chart.data.datasets[0].data[1] = 100 - value;
+            chart.update();
+        }
+
+        // Initialize Line Chart for Total Queries
+        const totalQueriesChart = new Chart(document.getElementById('totalQueriesChart'), {
+            type: 'line',
+            data: {
+                labels: Array(60).fill('').map((_, i) => `${i} min`),
+                datasets: [{
+                    label: 'Total Queries',
+                    data: Array(60).fill(0), // Placeholder for the last hour data
+                    borderColor: '#ff9800',
+                    fill: true,
+                    backgroundColor: 'rgba(255, 152, 0, 0.2)'
+                }]
+            },
+            options: { responsive: true, scales: { y: { beginAtZero: true } } }
+        });
+
+        // Initialize Bar Chart for Queries Blocked
+        const queriesBlockedChart = new Chart(document.getElementById('queriesBlockedChart'), {
+            type: 'bar',
+            data: {
+                labels: Array(60).fill('').map((_, i) => `${i} min`),
+                datasets: [{
+                    label: 'Queries Blocked',
+                    data: Array(60).fill(0), // Placeholder for blocked queries data
+                    backgroundColor: '#f44336',
+                }]
+            },
+            options: { responsive: true, scales: { y: { beginAtZero: true } } }
+        });
+
+        // Initialize Line Chart for Client Activity
+        const clientActivityChart = new Chart(document.getElementById('clientActivityChart'), {
+            type: 'line',
+            data: {
+                labels: Array(60).fill('').map((_, i) => `${i} min`),
+                datasets: [{
+                    label: 'Client Activity',
+                    data: Array(60).fill(0), // Placeholder for client activity data
+                    borderColor: '#4caf50',
+                    fill: true,
+                    backgroundColor: 'rgba(76, 175, 80, 0.2)'
+                }]
+            },
+            options: { responsive: true, scales: { y: { beginAtZero: true } } }
+        });
+
+        function updateTotalQueriesChart(totalQueries) {
+            totalQueriesChart.data.datasets[0].data = totalQueries; // Assuming totalQueries is an array of last hour data
+            totalQueriesChart.update();
+        }
+
+        function updateQueriesBlockedChart(queriesBlocked) {
+            queriesBlockedChart.data.datasets[0].data = queriesBlocked; // Assuming queriesBlocked is an array of last hour data
+            queriesBlockedChart.update();
+        }
+
+        function updateClientActivityChart(clientActivity) {
+            clientActivityChart.data.datasets[0].data = clientActivity; // Assuming clientActivity is an array of last hour data
+            clientActivityChart.update();
+        }
+
+        setInterval(fetchData, 10000); // Update data every 10 seconds
+        fetchData(); // Initial fetch
+    </script>
+</body>
+</html>
